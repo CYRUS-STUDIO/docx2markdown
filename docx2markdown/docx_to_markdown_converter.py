@@ -1,6 +1,6 @@
 import os
 
-from docx_parser import DocxParser, Paragraph, Table
+from docx2markdown.docx_parser import DocxParser, Paragraph, Table
 
 
 class DocxToMarkdownConverter:
