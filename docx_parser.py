@@ -52,6 +52,22 @@ class Hyperlink:
         return f"Hyperlink(id={self.id}, text={self.text}, url={self.url})"
 
 
+class Table:
+    def __init__(self, rows):
+        """
+        初始化 Table 对象
+        :param rows: 表格的所有行，每行是一个列表，包含单元格的文本内容
+        """
+        self.rows = rows
+
+    def __repr__(self):
+        """
+        定义如何显示 Table 对象的字符串表示
+        :return: 表格的字符串表示
+        """
+        return f"Table({len(self.rows)} rows)"
+
+
 class DocxParser:
     def __init__(self, file_path):
         self.file_path = file_path
@@ -281,6 +297,36 @@ class DocxParser:
 
         return numbering_info
 
+    def _parse_table(self, element, ns):
+        """
+        解析表格元素（<w:tbl>）并返回表格数据。
+        :param element: <w:tbl> 元素
+        :param ns: XML 命名空间
+        :return: 解析后的表格数据（列表形式，每个元素表示表格的一行）
+        """
+        table_data = []
+
+        if element.tag == '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}tbl':
+            # 查找表格的所有行 <w:tr>
+            rows = element.findall('.//w:tr', ns)
+
+            for row in rows:
+                row_data = []
+
+                # 查找每一行中的所有单元格 <w:tc>
+                cells = row.findall('.//w:tc', ns)
+
+                for cell in cells:
+                    # 获取单元格中的所有文本内容
+                    texts = [node.text for node in cell.findall('.//w:t', ns) if node.text]
+                    cell_text = ''.join(texts)
+                    row_data.append(cell_text)
+
+                # 将解析的一行数据添加到表格数据中
+                table_data.append(row_data)
+
+        return table_data
+
     def parse(self):
         """
         解析 document.xml 内容并返回文档对象，包含段落和样式。
@@ -298,21 +344,36 @@ class DocxParser:
                 'a': 'http://schemas.openxmlformats.org/drawingml/2006/main',
                 'pic': 'http://schemas.openxmlformats.org/drawingml/2006/picture'
             }
-            paragraphs = []
 
-            # 查找段落（<w:p>）标签，并提取文本内容、样式和图片
-            for paragraph in root.findall('.//w:p', ns):
-                texts = [node.text for node in paragraph.findall('.//w:t', ns) if node.text]
-                paragraph_text = ''.join(texts)
-                paragraph_style = self._parse_style(paragraph, ns)
-                paragraph_image = self._parse_image(paragraph, ns)
-                paragraph_numbering = self._parse_numbering(paragraph, ns)
-                paragraph_hyperlink = self._parse_hyperlink(paragraph, ns)
+            elements = []
 
-                paragraph_obj = Paragraph(paragraph_text, paragraph_style, paragraph_image, paragraph_numbering, paragraph_hyperlink)
-                paragraphs.append(paragraph_obj)
+            # 获取 <w:body> 节点
+            body = root.find('.//w:body', ns)
 
-            return {'paragraphs': paragraphs}
+            # 只迭代 <w:body> 下的直接子元素（不递归）
+            for element in body.findall('*'):  # '*' 表示所有直接子元素
+
+                # 处理段落 <w:p>
+                if element.tag == '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p':
+
+                    texts = [node.text for node in element.findall('.//w:t', ns) if node.text]
+                    paragraph_text = ''.join(texts)
+                    paragraph_style = self._parse_style(element, ns)
+                    paragraph_image = self._parse_image(element, ns)
+                    paragraph_numbering = self._parse_numbering(element, ns)
+                    paragraph_hyperlink = self._parse_hyperlink(element, ns)
+
+                    paragraph_obj = Paragraph(paragraph_text, paragraph_style, paragraph_image, paragraph_numbering, paragraph_hyperlink)
+                    elements.append(paragraph_obj)
+
+                # 处理表格 <w:tbl>
+                elif element.tag == '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}tbl':
+                    table_data = self._parse_table(element, ns)
+                    table_obj = Table(table_data)
+                    elements.append(table_obj)
+
+            return {'elements': elements}
+
         except ET.ParseError:
             raise ValueError("无法解析 document.xml 内容")
 
@@ -368,7 +429,7 @@ class DocxParser:
 
 # 使用示例
 if __name__ == "__main__":
-    docx_file = "D:\hugo\document\使用 opt 优化 LLVM IR，定制 clang 实现函数名加密.docx"  # 替换为你的 docx 文件路径
+    docx_file = r"D:\hugo\document\使用 opt 优化 LLVM IR，定制 clang 实现函数名加密.docx"  # 替换为你的 docx 文件路径
     parser = DocxParser(docx_file)
     document = parser.parse()
 

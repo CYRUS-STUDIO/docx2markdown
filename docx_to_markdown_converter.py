@@ -1,6 +1,6 @@
 import os
 
-from docx_parser import DocxParser
+from docx_parser import DocxParser, Paragraph, Table
 
 
 class DocxToMarkdownConverter:
@@ -121,6 +121,32 @@ class DocxToMarkdownConverter:
 
         return markdown_text
 
+    def _generate_markdown_from_table(self, table):
+        """
+        将 Table 对象转换为 Markdown 格式的表格。
+        :param table: Table 对象，包含表格的数据
+        :return: Markdown 格式的表格字符串
+        """
+        markdown_table = []
+
+        # 如果表格没有行，直接返回空字符串
+        if not table.rows:
+            return ""
+
+        # 表头行
+        header_row = table.rows[0]
+        markdown_table.append("| " + " | ".join(header_row) + " |")
+
+        # 分隔符行（Markdown 表头和表体的分隔线）
+        markdown_table.append("|" + " | ".join(["---"] * len(header_row)) + "|")
+
+        # 表格内容行
+        for row in table.rows[1:]:
+            markdown_table.append("| " + " | ".join(row) + " |")
+
+        # 返回转换后的 Markdown 表格内容
+        return "\n".join(markdown_table)
+
     def convert(self):
         """
         转换整个 docx 文件的内容为 markdown 格式。
@@ -129,8 +155,11 @@ class DocxToMarkdownConverter:
         document = parser.parse()
         markdown_content = ""
 
-        for paragraph in document['paragraphs']:
-            markdown_content += self._generate_markdown_from_paragraph(parser, paragraph) + "\n"
+        for element in document['elements']:
+            if isinstance(element, Paragraph):
+                markdown_content += self._generate_markdown_from_paragraph(parser, element) + "\n"
+            elif isinstance(element, Table):
+                markdown_content += self._generate_markdown_from_table(element) + "\n"
 
         # 如果文件结尾处仍然有未关闭的代码块，关闭它
         if self.in_code_block:
@@ -151,4 +180,3 @@ def docx_to_markdown(docx_file, output=None):
         print(f"Markdown 文件已生成：{output}")
 
     return markdown_content
-
