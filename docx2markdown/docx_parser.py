@@ -99,8 +99,6 @@ class DocxParser:
                 if 'word/numbering.xml' in docx_zip.namelist():
                     with docx_zip.open('word/numbering.xml') as rels_file:
                         self.numbering_xml = rels_file.read()
-                else:
-                    raise ValueError("word/numbering.xml 文件未找到")
 
         except zipfile.BadZipFile:
             raise ValueError(f"{self.file_path} 不是有效的 .docx 文件")
