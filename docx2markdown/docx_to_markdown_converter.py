@@ -91,10 +91,11 @@ class DocxToMarkdownConverter:
                 if style.fonts.get("default", None):
                     try:
                         heading_level = int(style.fonts["default"])
+                        heading_text = text.replace('**', '').strip()
                         if 1 <= heading_level <= 6:  # 1-6 级标题有效
-                            markdown_text += f"{'#' * heading_level} {text}\n"
+                            markdown_text += f"{'#' * heading_level} {heading_text}\n"
                         else:
-                            markdown_text += f"{text}\n"
+                            markdown_text += f"{heading_text}\n"
                     except ValueError:
                         markdown_text += f"{text}\n"  # 如果无法解析为数字，默认处理为普通文本
                 else:
