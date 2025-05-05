@@ -18,6 +18,13 @@ class DocxToMarkdownConverter:
             return paragraph.text.replace(paragraph.hyperlink.text, f"[{paragraph.hyperlink.text}]({paragraph.hyperlink.url})")
         return paragraph.text
 
+    def _escaping_text(self, text):
+        # 非代码块
+        if not self.in_code_block:
+            # < 转义
+            text = text.replace('<', '\\<', )
+        return text
+
     def _generate_markdown_from_paragraph(self, parser, paragraph):
         """
         根据段落信息生成相应的 Markdown 格式。
@@ -92,6 +99,7 @@ class DocxToMarkdownConverter:
                         markdown_text += f"{text}\n"  # 如果无法解析为数字，默认处理为普通文本
                 else:
                     # 普通文本
+                    text = self._escaping_text(text) # 转义
                     markdown_text += f"{text}\n"
 
         # 处理图片
@@ -135,6 +143,8 @@ class DocxToMarkdownConverter:
 
         # 表头行
         header_row = table.rows[0]
+        # 转义
+        header_row = [self._escaping_text(s) for s in header_row]
         markdown_table.append("| " + " | ".join(header_row) + " |")
 
         # 分隔符行（Markdown 表头和表体的分隔线）
@@ -142,6 +152,8 @@ class DocxToMarkdownConverter:
 
         # 表格内容行
         for row in table.rows[1:]:
+            # 转义
+            row = [self._escaping_text(s) for s in row]
             markdown_table.append("| " + " | ".join(row) + " |")
 
         # 返回转换后的 Markdown 表格内容
