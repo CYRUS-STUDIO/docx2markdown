@@ -1,6 +1,6 @@
 import os
 
-from docx2markdown.docx_parser import DocxParser, Paragraph, Table
+from docx2markdown.docx_parser import DocxParser, Paragraph, Table, Run, Hyperlink
 
 
 class DocxToMarkdownConverter:
@@ -9,16 +9,6 @@ class DocxToMarkdownConverter:
         self.in_code_block = False  # 用于追踪是否在代码块中
         self.code_block_content = ""  # 存储代码块的内容
 
-    def _parse_text_with_hyperlink(self, paragraph: Paragraph):
-        """
-        如果文本中有超链接，转换为 Markdown 超链接格式
-        """
-        hyperlink = paragraph.hyperlink
-        if hyperlink:
-            # 转换为 Markdown 超链接格式
-            return hyperlink.text.replace(hyperlink.text, f"[{hyperlink.text}]({hyperlink.url})")
-        return hyperlink.text
-
     def _escaping_text(self, text):
         # 非代码块
         if not self.in_code_block:
@@ -26,24 +16,26 @@ class DocxToMarkdownConverter:
             text = text.replace('<', '\\<', )
         return text
 
-    def _generate_markdown_from_paragraph(self, parser, paragraph):
+    def _generate_markdown_from_paragraph(self, parser, paragraph: Paragraph):
         """
         根据段落信息生成相应的 Markdown 格式。
         """
-        if paragraph.hyperlink:
-            text = self._parse_text_with_hyperlink(paragraph)  # 获取段落文本并处理文本中的超链接
-        else:
-            text = ""
-            for run in paragraph.runs:
+
+        text = ""
+        for element in paragraph.elements:
+            if isinstance(element, Run):
                 # 处理加粗、斜体、下划线
-                run_text = run.text
-                if run.style.bold:
+                run_text = element.text
+                if element.style.bold:
                     run_text = f"**{run_text}** "
-                if run.style.italic:
+                if element.style.italic:
                     run_text = f"*{run_text}* "
-                if run.style.underline:
+                if element.style.underline:
                     run_text = f"_{run_text}_ "
                 text += run_text
+            elif isinstance(element, Hyperlink):
+                # 转换为 Markdown 超链接格式
+                text += f"[{element.text}]({element.url})"
 
         style = paragraph.style
         image = paragraph.image
@@ -107,7 +99,7 @@ class DocxToMarkdownConverter:
                         markdown_text += f"{text}\n"  # 如果无法解析为数字，默认处理为普通文本
                 else:
                     # 普通文本
-                    text = self._escaping_text(text) # 转义
+                    text = self._escaping_text(text)  # 转义
                     markdown_text += f"{text}\n"
 
         # 处理图片

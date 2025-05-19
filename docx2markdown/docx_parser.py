@@ -37,12 +37,11 @@ class Run:
 
 # 定义段落对象，用于存储段落文本、样式、图片信息和编号
 class Paragraph:
-    def __init__(self, runs: List[Run], style=None, image=None, numbering=None, hyperlink=None):
-        self.runs = runs
+    def __init__(self, elements: list, style=None, image=None, numbering=None, hyperlink=None):
+        self.elements = elements
         self.style = style or Style()
         self.image = image  # 保存图片信息
         self.numbering = numbering  # 保存编号信息
-        self.hyperlink = hyperlink  # 超链接
 
     def __str__(self):
         image_str = f"Image: {self.image}" if self.image else ""
@@ -112,24 +111,25 @@ class DocxParser:
         except zipfile.BadZipFile:
             raise ValueError(f"{self.file_path} 不是有效的 .docx 文件")
 
-    def _parse_hyperlink(self, paragraph_element, ns) -> Hyperlink:
+    def _parse_hyperlink(self, hyperlink_element, ns) -> Hyperlink | None:
         """
-        从段落中解析超链接信息。
+        解析超链接信息。
         """
-        hyperlink = None
-        hyperlink_element = paragraph_element.find('.//w:hyperlink', ns)
-        if hyperlink_element is not None:
-            r_id = hyperlink_element.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id')
-            # 获取超链接文本
-            texts = [node.text for node in hyperlink_element.findall('.//w:t', ns) if node.text]
-            hyperlink_text = ''.join(texts)
+        r_id = hyperlink_element.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id')
 
-            # 查找 .rels 文件中的超链接真实 URL
-            if r_id:
-                url = self._get_hyperlink_url(r_id)
-                if url:
-                    hyperlink = Hyperlink(r_id, hyperlink_text, url)
-        return hyperlink
+        # 获取超链接文本
+        texts = [node.text for node in hyperlink_element.findall('.//w:t', ns) if node.text]
+        hyperlink_text = ''.join(texts)
+
+        # 查找 .rels 文件中的超链接真实 URL
+        if r_id:
+            url = self._get_hyperlink_url(r_id)
+            if url:
+                return Hyperlink(r_id, hyperlink_text, url)
+            else:
+                print(f"[WARN] Hyperlink with r:id='{r_id}' not found in .rels. Text: '{hyperlink_text}'")
+
+        return None
 
     def _get_hyperlink_url(self, r_id):
         """
@@ -340,20 +340,16 @@ class DocxParser:
 
         return table_data
 
-    def parse_runs(self, p_elem, ns) -> List[Run]:
-        runs = []
-        for r_elem in p_elem.findall('w:r', ns):
-            # 提取文本
-            t_elem = r_elem.find('w:t', ns)
-            if t_elem is None or t_elem.text is None:
-                continue
-            text = t_elem.text
+    def _parse_run(self, r_elem, ns) -> Run:
+        # 提取文本
+        t_elem = r_elem.find('w:t', ns)
+        if t_elem is None or t_elem.text is None:
+            return None
+        text = t_elem.text
 
-            style = self._parse_run_style(r_elem, ns)
+        style = self._parse_run_style(r_elem, ns)
 
-            runs.append(Run(text=text, style=style))
-
-        return runs
+        return Run(text=text, style=style)
 
     def parse(self):
         """
@@ -384,13 +380,29 @@ class DocxParser:
                 # 处理段落 <w:p>
                 if element.tag == '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p':
 
-                    runs = self.parse_runs(element, ns)
+                    p_child_elements = []
+
+                    # 遍历 <w:p> 的所有子节点（保持顺序）
+                    for child in element:
+                        tag = child.tag
+
+                        # Run
+                        if tag == f"{{{ns['w']}}}r":
+                            run = self._parse_run(child, ns)
+                            if run:
+                                p_child_elements.append(run)
+
+                        # 超链接
+                        elif tag == f"{{{ns['w']}}}hyperlink":
+                            hyperlink = self._parse_hyperlink(child, ns)
+                            if hyperlink:
+                                p_child_elements.append(hyperlink)
+
                     paragraph_style = self._parse_p_style(element, ns)
                     paragraph_image = self._parse_image(element, ns)
                     paragraph_numbering = self._parse_numbering(element, ns)
-                    paragraph_hyperlink = self._parse_hyperlink(element, ns)
 
-                    paragraph_obj = Paragraph(runs, paragraph_style, paragraph_image, paragraph_numbering, paragraph_hyperlink)
+                    paragraph_obj = Paragraph(p_child_elements, paragraph_style, paragraph_image, paragraph_numbering)
                     elements.append(paragraph_obj)
 
                 # 处理表格 <w:tbl>
