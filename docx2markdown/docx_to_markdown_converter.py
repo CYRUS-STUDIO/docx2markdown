@@ -9,14 +9,15 @@ class DocxToMarkdownConverter:
         self.in_code_block = False  # 用于追踪是否在代码块中
         self.code_block_content = ""  # 存储代码块的内容
 
-    def _parse_text_with_hyperlink(self, paragraph):
+    def _parse_text_with_hyperlink(self, paragraph: Paragraph):
         """
         如果文本中有超链接，转换为 Markdown 超链接格式
         """
-        if paragraph.hyperlink:
+        hyperlink = paragraph.hyperlink
+        if hyperlink:
             # 转换为 Markdown 超链接格式
-            return paragraph.text.replace(paragraph.hyperlink.text, f"[{paragraph.hyperlink.text}]({paragraph.hyperlink.url})")
-        return paragraph.text
+            return hyperlink.text.replace(hyperlink.text, f"[{hyperlink.text}]({hyperlink.url})")
+        return hyperlink.text
 
     def _escaping_text(self, text):
         # 非代码块
@@ -29,21 +30,27 @@ class DocxToMarkdownConverter:
         """
         根据段落信息生成相应的 Markdown 格式。
         """
-        text = self._parse_text_with_hyperlink(paragraph)  # 获取段落文本并处理文本中的超链接
+        if paragraph.hyperlink:
+            text = self._parse_text_with_hyperlink(paragraph)  # 获取段落文本并处理文本中的超链接
+        else:
+            text = ""
+            for run in paragraph.runs:
+                # 处理加粗、斜体、下划线
+                run_text = run.text
+                if run.style.bold:
+                    run_text = f"**{run_text}** "
+                if run.style.italic:
+                    run_text = f"*{run_text}* "
+                if run.style.underline:
+                    run_text = f"_{run_text}_ "
+                text += run_text
+
         style = paragraph.style
         image = paragraph.image
         numbering = paragraph.numbering  # 假设已经在解析时获取了编号信息
         background = style.background  # 获取背景填充信息
 
         markdown_text = ""
-
-        # 处理加粗、斜体、下划线
-        if style.bold:
-            text = f"**{text}**"
-        if style.italic:
-            text = f"*{text}*"
-        if style.underline:
-            text = f"_{text}_"
 
         # 检查是否是代码块（背景填充不为空）
         if background and background.get('fill') == 'DBDBDB':  # 可以根据需要修改背景色

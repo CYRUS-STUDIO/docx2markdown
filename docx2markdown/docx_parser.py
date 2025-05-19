@@ -2,6 +2,8 @@ import zipfile
 import xml.etree.ElementTree as ET
 import os
 import base64
+from dataclasses import dataclass
+from typing import List
 
 
 # 定义样式对象，用于存储段落的样式信息
@@ -26,10 +28,17 @@ class Style:
                f"SpacingAfter: {self.spacing_after}, Background: {background_str}"
 
 
+# w:r 是 WordprocessingML（Microsoft Word 使用的 XML 格式）中的 “文字运行”（Run）节点。
+@dataclass
+class Run:
+    text: str
+    style: Style = None
+
+
 # 定义段落对象，用于存储段落文本、样式、图片信息和编号
 class Paragraph:
-    def __init__(self, text, style=None, image=None, numbering=None, hyperlink=None):
-        self.text = text
+    def __init__(self, runs: List[Run], style=None, image=None, numbering=None, hyperlink=None):
+        self.runs = runs
         self.style = style or Style()
         self.image = image  # 保存图片信息
         self.numbering = numbering  # 保存编号信息
@@ -39,7 +48,7 @@ class Paragraph:
         image_str = f"Image: {self.image}" if self.image else ""
         numbering_str = f"Numbering: {self.numbering}" if self.numbering else ""
         hyperlink = f"Hyperlink: {self.hyperlink}" if self.hyperlink else ""
-        return f"Text: {self.text}, Style: {self.style}, {image_str}, {numbering_str}, {hyperlink}"
+        return f"Runs: {self.runs}, Style: {self.style}, {image_str}, {numbering_str}, {hyperlink}"
 
 
 class Hyperlink:
@@ -103,7 +112,7 @@ class DocxParser:
         except zipfile.BadZipFile:
             raise ValueError(f"{self.file_path} 不是有效的 .docx 文件")
 
-    def _parse_hyperlink(self, paragraph_element, ns):
+    def _parse_hyperlink(self, paragraph_element, ns) -> Hyperlink:
         """
         从段落中解析超链接信息。
         """
@@ -142,7 +151,7 @@ class DocxParser:
                     break
         return url
 
-    def _parse_style(self, paragraph_element, ns):
+    def _parse_p_style(self, paragraph_element, ns):
         """
         从段落中解析样式信息。
         """
@@ -153,8 +162,33 @@ class DocxParser:
         if pStyle is not None:
             style.fonts["default"] = pStyle.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val')
 
+        # 解析段落对齐和间距
+        pAlignment = paragraph_element.find('.//w:jc', ns)
+        if pAlignment is not None:
+            style.alignment = pAlignment.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val')
+
+        spacing = paragraph_element.find('.//w:spacing', ns)
+        if spacing is not None:
+            style.spacing_before = spacing.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}before')
+            style.spacing_after = spacing.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}after')
+
+        # 解析背景填充信息（<w:shd>）
+        shd = paragraph_element.find('.//w:shd', ns)
+        if shd is not None:
+            style.background = {
+                'val': shd.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val'),
+                'color': shd.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}color'),
+                'fill': shd.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}fill')
+            }
+
+        return style
+
+    def _parse_run_style(self, run_element, ns):
+
+        style = Style()
+
         # 解析字体和大小
-        rPr = paragraph_element.find('.//w:rPr', ns)
+        rPr = run_element.find('.//w:rPr', ns)
         if rPr is not None:
             # 解析字体
             rFonts = rPr.find('.//w:rFonts', ns)
@@ -178,25 +212,6 @@ class DocxParser:
             sz = rPr.find('.//w:sz', ns)
             if sz is not None:
                 style.size = sz.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val')
-
-        # 解析段落对齐和间距
-        pAlignment = paragraph_element.find('.//w:jc', ns)
-        if pAlignment is not None:
-            style.alignment = pAlignment.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val')
-
-        spacing = paragraph_element.find('.//w:spacing', ns)
-        if spacing is not None:
-            style.spacing_before = spacing.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}before')
-            style.spacing_after = spacing.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}after')
-
-        # 解析背景填充信息（<w:shd>）
-        shd = paragraph_element.find('.//w:shd', ns)
-        if shd is not None:
-            style.background = {
-                'val': shd.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val'),
-                'color': shd.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}color'),
-                'fill': shd.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}fill')
-            }
 
         return style
 
@@ -325,6 +340,21 @@ class DocxParser:
 
         return table_data
 
+    def parse_runs(self, p_elem, ns) -> List[Run]:
+        runs = []
+        for r_elem in p_elem.findall('w:r', ns):
+            # 提取文本
+            t_elem = r_elem.find('w:t', ns)
+            if t_elem is None or t_elem.text is None:
+                continue
+            text = t_elem.text
+
+            style = self._parse_run_style(r_elem, ns)
+
+            runs.append(Run(text=text, style=style))
+
+        return runs
+
     def parse(self):
         """
         解析 document.xml 内容并返回文档对象，包含段落和样式。
@@ -354,14 +384,13 @@ class DocxParser:
                 # 处理段落 <w:p>
                 if element.tag == '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p':
 
-                    texts = [node.text for node in element.findall('.//w:t', ns) if node.text]
-                    paragraph_text = ''.join(texts)
-                    paragraph_style = self._parse_style(element, ns)
+                    runs = self.parse_runs(element, ns)
+                    paragraph_style = self._parse_p_style(element, ns)
                     paragraph_image = self._parse_image(element, ns)
                     paragraph_numbering = self._parse_numbering(element, ns)
                     paragraph_hyperlink = self._parse_hyperlink(element, ns)
 
-                    paragraph_obj = Paragraph(paragraph_text, paragraph_style, paragraph_image, paragraph_numbering, paragraph_hyperlink)
+                    paragraph_obj = Paragraph(runs, paragraph_style, paragraph_image, paragraph_numbering, paragraph_hyperlink)
                     elements.append(paragraph_obj)
 
                 # 处理表格 <w:tbl>
@@ -424,13 +453,12 @@ class DocxParser:
             print(f"无法打开 {self.file_path}，请确保它是一个有效的 .docx 文件")
             return None
 
-
 # 使用示例
-if __name__ == "__main__":
-    docx_file = r"D:\hugo\document\使用 opt 优化 LLVM IR，定制 clang 实现函数名加密.docx"  # 替换为你的 docx 文件路径
-    parser = DocxParser(docx_file)
-    document = parser.parse()
-
-    print("文档内容：")
-    for i, paragraph in enumerate(document['paragraphs'], start=1):
-        print(f"段落 {i}: {paragraph}")
+# if __name__ == "__main__":
+#     docx_file = r"D:\hugo\document\使用 opt 优化 LLVM IR，定制 clang 实现函数名加密.docx"  # 替换为你的 docx 文件路径
+#     parser = DocxParser(docx_file)
+#     document = parser.parse()
+#
+#     print("文档内容：")
+#     for i, paragraph in enumerate(document['paragraphs'], start=1):
+#         print(f"段落 {i}: {paragraph}")
